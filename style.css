@@ -16,22 +16,30 @@ body {
 
 #main-ui { display: flex; flex-direction: column; align-items: center; width: 100%; padding: 10px; }
 
+/* Cabecera e Info */
 .game-header { display: flex; align-items: center; gap: 12px; margin-bottom: 15px; }
 .game-header h2 { margin: 0; color: var(--gold); letter-spacing: 2px; font-size: 1.4rem; }
 
+#info-link {
+    display: inline-block; width: 28px; height: 28px; background-color: var(--chile-blue);
+    color: white; text-decoration: none; border-radius: 50%; text-align: center;
+    line-height: 28px; font-family: 'Georgia', serif; font-style: italic; font-weight: bold;
+    font-size: 18px; border: 1px solid var(--gold); transition: 0.3s;
+}
+#info-link:hover { background-color: var(--chile-red); transform: scale(1.1); }
+
 /* Banderas */
 .chilean-flag { border: 1px solid #555; display: flex; flex-direction: column; overflow: hidden; }
-.main-flag { width: 80px; height: 53px; margin: 0 auto 15px; }
+.main-flag { width: 80px; height: 53px; margin: 0 auto 20px; }
 .mini-flag { width: 30px; height: 20px; }
 .flag-top { display: flex; height: 50%; }
-.flag-blue { background: var(--chile-blue); width: 35%; color: white; font-size: 12px; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+.flag-blue { background: var(--chile-blue); width: 35%; color: white; font-size: 10px; display: flex; align-items: center; justify-content: center; }
 .flag-white { background: #fff; width: 65%; }
 .flag-red { background: var(--chile-red); height: 50%; }
 
+/* Contenedores */
 .game-container { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 25px; width: 100%; }
-
-/* Tablero */
-#board-outer-frame { display: flex; background: var(--frame-color); padding: 10px; border: 3px solid #2a1b15; box-shadow: 0 0 30px #000; }
+#board-outer-frame { display: flex; background: var(--frame-color); padding: 10px; border: 3px solid #2a1b15; box-shadow: 0 0 20px #000; }
 .coords-y { display: flex; flex-direction: column; justify-content: space-around; padding-right: 10px; font-weight: bold; color: var(--gold); font-size: 14px; }
 .coords-x { display: flex; justify-content: space-around; padding-top: 10px; font-weight: bold; color: var(--gold); font-size: 14px; }
 
@@ -42,24 +50,23 @@ body {
     background-color: var(--wood-board);
 }
 
-.square { width: 100%; height: 100%; border: 0.5px solid rgba(0,0,0,0.2); position: relative; display: flex; align-items: center; justify-content: center; }
-.piece { width: 85%; height: 85%; border-radius: 50%; box-shadow: 0 4px 0 #000; z-index: 5; }
+.square { width: 100%; height: 100%; border: 0.5px solid rgba(0,0,0,0.1); position: relative; display: flex; align-items: center; justify-content: center; }
+.piece { width: 85%; height: 85%; border-radius: 50%; box-shadow: 0 4px 0 #000; z-index: 5; transition: 0.2s; }
 .white { background: #fdfdfd; }
 .black { background: #1a1a1a; }
 .soberana { border: 3px solid var(--gold) !important; width: 70% !important; height: 70% !important; }
 
-/* Paneles Laterales */
+/* Paneles de Captura */
 .graveyard { width: 60px; min-height: 400px; background: rgba(0,0,0,0.5); display: flex; flex-direction: column; align-items: center; gap: 5px; padding: 10px 0; border: 1px solid var(--frame-color); }
 .captured { width: 32px; height: 32px; border-radius: 50%; margin-bottom: -15px; box-shadow: 0 2px 0 #000; }
 
-/* Loggers y Dots */
+/* Log y Puntos */
 #move-logger { margin-top: 20px; padding: 12px; background: #1e140d; border-left: 4px solid var(--gold); width: 100%; max-width: 480px; text-align: center; }
-.logger-title { font-size: 10px; color: var(--gold); letter-spacing: 2px; }
+.logger-title { font-size: 10px; color: var(--gold); letter-spacing: 2px; margin-bottom: 5px; }
 #current-move-text { font-weight: bold; font-size: 1rem; color: #fff; }
-
 .dot { width: 35%; height: 35%; background: rgba(46, 204, 113, 0.9); border-radius: 50%; position: absolute; z-index: 10; border: 2px solid #fff; cursor: pointer; }
 
-/* Ajuste Móvil */
+/* Optimización Móvil */
 @media (max-width: 850px) {
     .game-container { flex-direction: column; gap: 15px; }
     #board { grid-template-columns: repeat(8, 11.2vw); grid-template-rows: repeat(8, 11.2vw); }
@@ -69,6 +76,7 @@ body {
     #move-logger { order: 2; width: 95vw; }
 }
 
+/* Overlays */
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.96); display: flex; justify-content: center; align-items: center; z-index: 1000; }
 .setup-box { text-align: center; border: 1px solid var(--gold); padding: 30px; background: #3e2723; width: 90%; max-width: 350px; }
 button { padding: 15px; background: var(--chile-red); border: none; font-weight: bold; cursor: pointer; margin-top: 15px; color: #fff; width: 100%; text-transform: uppercase; }
