@@ -9,15 +9,18 @@
 <body>
     <div id="setup-overlay" class="overlay">
         <div class="setup-box">
-            <div class="chilean-flag">
-                <div class="flag-top"><div class="flag-blue">★</div><div class="flag-white"></div></div>
+            <div class="chilean-flag main-flag">
+                <div class="flag-top">
+                    <div class="flag-blue">★</div>
+                    <div class="flag-white"></div>
+                </div>
                 <div class="flag-red"></div>
             </div>
-            <h2>SISTEMA FRONTERA</h2>
-            <p>Seleccione su bando para iniciar:</p>
+            <h1>SISTEMA FRONTERA</h1>
+            <p>Simulador de Estrategia: Damas Chilenas</p>
             <div class="options">
-                <button onclick="setupGame('white')">BLANCAS (Inician)</button>
-                <button onclick="setupGame('black')">NEGRAS (Inicia Pangi)</button>
+                <button onclick="setupGame('white')">BANDO BLANCO</button>
+                <button onclick="setupGame('black')">BANDO NEGRO (Pangi)</button>
             </div>
         </div>
     </div>
@@ -26,41 +29,55 @@
         <div class="setup-box">
             <h2 id="end-message">PARTIDA FINALIZADA</h2>
             <p id="end-reason"></p>
-            <button onclick="location.reload()">REINICIAR SISTEMA</button>
+            <button onclick="location.reload()">REINICIAR</button>
         </div>
     </div>
 
     <div id="main-ui">
-        <div class="side-panel">
-            <h4>Capturas Blancas</h4>
-            <div id="graveyard-white" class="graveyard"></div>
-        </div>
-
-        <div id="center-zone">
-            <div id="board-outer-frame">
-                <div class="coords-y">
-                    <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+        <header class="game-header">
+            <div class="chilean-flag mini-flag">
+                <div class="flag-top">
+                    <div class="flag-blue">★</div>
+                    <div class="flag-white"></div>
                 </div>
-                <div class="inner-board-container">
-                    <div id="board"></div>
-                    <div class="coords-x">
-                        <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+                <div class="flag-red"></div>
+            </div>
+            <h2>FRONTERA 🇨🇱</h2>
+        </header>
+
+        <div class="game-container">
+            <div class="side-panel">
+                <h4>Capturas Blancas</h4>
+                <div id="graveyard-white" class="graveyard"></div>
+            </div>
+
+            <div id="center-zone">
+                <div id="board-outer-frame">
+                    <div class="coords-y">
+                        <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
+                    </div>
+                    <div class="inner-board-container">
+                        <div id="board"></div>
+                        <div class="coords-x">
+                            <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
+                        </div>
                     </div>
                 </div>
+                
+                <div id="move-logger">
+                    <div class="logger-title">REGISTRO DE CAMPAÑA</div>
+                    <div id="current-move-text">ESPERANDO DESPLIEGUE...</div>
+                </div>
             </div>
-            
-            <div id="move-logger">
-                <div class="logger-title">REGISTRO DE MOVIMIENTOS</div>
-                <div id="current-move-text">ESPERANDO INICIO...</div>
-            </div>
-        </div>
 
-        <div class="side-panel">
-            <h4>Capturas Negras</h4>
-            <div id="graveyard-black" class="graveyard"></div>
+            <div class="side-panel">
+                <h4>Capturas Negras</h4>
+                <div id="graveyard-black" class="graveyard"></div>
+            </div>
         </div>
     </div>
 
     <script src="game.js"></script>
 </body>
 </html>
+
