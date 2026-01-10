@@ -1,3 +1,8 @@
+/**
+ * SISTEMA FRONTERA - Motor Lógico v1.2
+ * Implementación de Damas Chilenas con Seguridad de Turno y Vuelo de Soberana
+ */
+
 let board = [];
 let playerColor = 'white';
 let pangiColor = 'black';
@@ -7,6 +12,7 @@ let isChain = false;
 
 const COLS = ['A','B','C','D','E','F','G','H'];
 
+// Inicialización del Sistema
 function setupGame(color) {
     playerColor = color;
     pangiColor = (color === 'white') ? 'black' : 'white';
@@ -16,6 +22,7 @@ function setupGame(color) {
 
 function init() {
     board = Array.from({ length: 8 }, () => Array(8).fill(null));
+    // Despliegue de unidades en bases (Filas 1-2 y 7-8)
     for(let c=0; c<8; c++) {
         board[0][c] = { color: playerColor, isSoberana: false };
         board[1][c] = { color: playerColor, isSoberana: false };
@@ -27,6 +34,7 @@ function init() {
 
 function getNotation(r, c) { return `${COLS[c]}${r + 1}`; }
 
+// Cálculo de Movimientos Válidos
 function getValidMoves(r, c, onlyCaptures = false) {
     const p = board[r][c];
     if (!p) return [];
@@ -34,6 +42,7 @@ function getValidMoves(r, c, onlyCaptures = false) {
     const fwd = p.color === playerColor ? 1 : -1;
     const allDirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
 
+    // Movimientos simples (Acción 'a')
     if (!onlyCaptures) {
         if (p.isSoberana) {
             allDirs.forEach(d => {
@@ -44,13 +53,15 @@ function getValidMoves(r, c, onlyCaptures = false) {
                 }
             });
         } else {
+            // Peón: Ortogonal (Frente y Laterales)
             [[r+fwd, c], [r, c+1], [r, c-1]].forEach(([nr, nc]) => {
                 if (nr>=0 && nr<8 && nc>=0 && nc<8 && !board[nr][nc]) moves.push({r:nr, c:nc, type:'a'});
             });
         }
     }
 
-    const scanDirs = p.isSoberana ? allDirs : [[fwd,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    // Capturas (Acción 'captura') en 8 direcciones
+    const scanDirs = p.isSoberana ? allDirs : allDirs;
     scanDirs.forEach(d => {
         let nr=r+d[0], nc=c+d[1];
         if (p.isSoberana) {
@@ -64,6 +75,7 @@ function getValidMoves(r, c, onlyCaptures = false) {
             }
             if (victim) {
                 let tr = victim.r + d[0], tc = victim.c + d[1];
+                // VUELO DE LA SOBERANA: Elección de casilla de aterrizaje
                 while(tr>=0 && tr<8 && tc>=0 && tc<8 && !board[tr][tc]) {
                     moves.push({r:tr, c:tc, type:'captura', cap:victim});
                     tr += d[0]; tc += d[1];
@@ -79,6 +91,7 @@ function getValidMoves(r, c, onlyCaptures = false) {
     return moves;
 }
 
+// Ejecución de Maniobra
 function execute(move) {
     if (!selected) return;
     const fromR = selected.r, fromC = selected.c;
@@ -95,22 +108,29 @@ function execute(move) {
         const victimColor = board[move.cap.r][move.cap.c].color;
         updateGraveyard(victimColor);
         board[move.cap.r][move.cap.c] = null;
+        
+        // Verificación de capturas en cadena
         const next = getValidMoves(move.r, move.c, true);
         if (next.length > 0) {
             selected = { r: move.r, c: move.c };
             isChain = true;
             render();
+            // Si es la IA, prosigue la cadena automáticamente
             if (turn === pangiColor) setTimeout(() => execute(next[0]), 600);
             return;
         }
     }
 
+    // Coronación
     if (move.r === (p.color === playerColor ? 7 : 0)) p.isSoberana = true;
+    
+    // Cambio de turno
     turn = (turn === 'white') ? 'black' : 'white';
     selected = null;
     isChain = false;
     render();
     checkGameEnd();
+    
     if (turn === pangiColor) setTimeout(pangiAI, 800);
 }
 
@@ -127,16 +147,20 @@ function checkGameEnd() {
 function endGame(winner) {
     const overlay = document.getElementById('end-overlay');
     document.getElementById('end-message').innerText = `VICTORIA: ${winner === 'white' ? 'BLANCAS' : 'NEGRAS'}`;
-    document.getElementById('end-reason').innerText = `Eliminación completa o bloqueo de movimientos.`;
+    document.getElementById('end-reason').innerText = `Fuerzas enemigas neutralizadas o bloqueadas.`;
     overlay.style.display = 'flex';
 }
 
+// Inteligencia Artificial Pangi
 function pangiAI() {
     let options = [];
     for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
-        if(board[r][c]?.color === pangiColor) getValidMoves(r,c).forEach(m => options.push({origin:{r,c}, ...m}));
+        if(board[r][c]?.color === pangiColor) {
+            getValidMoves(r,c).forEach(m => options.push({origin:{r,c}, ...m}));
+        }
     }
     if(options.length > 0) {
+        // Priorizar capturas (Ley de Cantidad simplificada)
         options.sort((a,b) => a.type === 'captura' ? -1 : 1);
         selected = options[0].origin;
         execute(options[0]);
@@ -149,6 +173,7 @@ function updateGraveyard(color) {
     document.getElementById(`graveyard-${color}`).appendChild(div);
 }
 
+// Renderizado con Seguridad de Bando
 function render() {
     const b = document.getElementById('board');
     b.innerHTML = '';
@@ -160,8 +185,17 @@ function render() {
             if (p) {
                 const pEl = document.createElement('div');
                 pEl.className = `piece ${p.color} ${p.isSoberana ? 'soberana' : ''}`;
-                if (turn === playerColor && (!isChain || (selected?.r === r && selected?.c === c))) {
-                    pEl.onclick = () => { selected = {r, c}; render(); showDots(r, c); };
+                
+                // SEGURIDAD: Solo el jugador humano puede interactuar con sus propias piezas en su turno
+                if (turn === playerColor && p.color === playerColor) {
+                    if (!isChain || (selected?.r === r && selected?.c === c)) {
+                        pEl.style.cursor = 'pointer';
+                        pEl.onclick = () => { 
+                            selected = {r, c}; 
+                            render(); 
+                            showDots(r, c); 
+                        };
+                    }
                 }
                 sq.appendChild(pEl);
             }
@@ -177,6 +211,7 @@ function showDots(r, c) {
         const dot = document.createElement('div');
         dot.className = 'dot';
         dot.onclick = (e) => { e.stopPropagation(); execute(m); };
+        // Mapeo de coordenadas al DOM (ajustado por inversión visual de filas)
         squares[(7 - m.r) * 8 + m.c].appendChild(dot);
     });
 }
