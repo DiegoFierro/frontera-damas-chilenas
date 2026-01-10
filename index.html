@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>FRONTERA: Sistema de Damas Chilenas</title>
     <link rel="stylesheet" href="style.css">
 </head>
@@ -23,7 +24,7 @@
 
     <div id="end-overlay" class="overlay" style="display:none;">
         <div class="setup-box">
-            <h2 id="end-message">FIN DE LA PARTIDA</h2>
+            <h2 id="end-message">PARTIDA FINALIZADA</h2>
             <p id="end-reason"></p>
             <button onclick="location.reload()">REINICIAR SISTEMA</button>
         </div>
@@ -40,7 +41,7 @@
                 <div class="coords-y">
                     <span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span>
                 </div>
-                <div>
+                <div class="inner-board-container">
                     <div id="board"></div>
                     <div class="coords-x">
                         <span>A</span><span>B</span><span>C</span><span>D</span><span>E</span><span>F</span><span>G</span><span>H</span>
