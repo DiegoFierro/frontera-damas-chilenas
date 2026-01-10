@@ -5,200 +5,142 @@
     --frame-color: #3e2723;
 }
 
-/* Configuración General */
+/* Reset y Prevención de Zoom */
+* { box-sizing: border-box; touch-action: manipulation; }
+
 body { 
     background: var(--bg-dark); 
     color: #d7ccc8; 
     font-family: 'Courier New', monospace; 
     margin: 0; 
     display: flex; 
-    justify-content: center; 
-    overflow-x: hidden; 
+    align-items: center; 
+    justify-content: center;
+    min-height: 100vh;
+    overflow-x: hidden;
 }
 
-/* Layout Principal Adaptable */
 #main-ui { 
     display: flex; 
     flex-direction: row; 
-    align-items: flex-start; 
-    gap: 30px; 
-    padding: 20px;
-    max-width: 100vw;
+    align-items: center; 
+    justify-content: center;
+    gap: 20px; 
+    padding: 15px;
+    width: 100%;
 }
 
-/* Marco del Tablero y Coordenadas */
+/* Zona del Tablero */
+#center-zone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
 #board-outer-frame { 
     display: flex; 
     background: var(--frame-color); 
-    padding: 12px; 
-    border: 2px solid #2a1b15; 
-    box-shadow: 0 0 40px rgba(0,0,0,0.6); 
+    padding: 10px; 
+    border: 3px solid #2a1b15; 
+    box-shadow: 0 0 50px rgba(0,0,0,0.9);
 }
 
 .coords-y { 
     display: flex; 
     flex-direction: column; 
     justify-content: space-around; 
-    padding-right: 12px; 
+    padding-right: 10px; 
     font-weight: bold; 
     color: var(--gold); 
+    font-size: 14px;
 }
 
 .coords-x { 
     display: flex; 
     justify-content: space-around; 
-    padding-top: 12px; 
+    padding-top: 10px; 
     font-weight: bold; 
     color: var(--gold); 
+    font-size: 14px;
 }
 
-/* Tablero Monocromático Responsivo */
+/* El Tablero: Tamaño Adaptativo */
 #board {
     display: grid;
-    /* En PC usa 60px, en celular usa el 11% del ancho de pantalla */
+    /* En pantallas grandes usa 60px, en pequeñas se adapta al ancho disponible */
     grid-template-columns: repeat(8, min(11vw, 60px));
     grid-template-rows: repeat(8, min(11vw, 60px));
     background-color: var(--wood-board);
 }
 
 .square {
-    width: 100%;
-    height: 100%;
-    border: 0.5px solid rgba(0,0,0,0.15);
+    width: 100%; height: 100%;
+    border: 0.5px solid rgba(0,0,0,0.2);
     position: relative;
-    display: flex; 
-    align-items: center; 
-    justify-content: center;
+    display: flex; align-items: center; justify-content: center;
 }
 
-/* Piezas Adaptables */
+/* Piezas Monocromáticas */
 .piece { 
-    width: 80%; 
-    height: 80%; 
-    border-radius: 50%; 
-    cursor: pointer; 
-    box-shadow: 0 4px 0 #000; 
-    z-index: 5; 
-    transition: transform 0.2s; 
+    width: 85%; height: 85%; border-radius: 50%; 
+    box-shadow: 0 3px 0 #000; z-index: 5; 
+    transition: transform 0.1s;
 }
-
 .white { background: #fdfdfd; }
 .black { background: #1a1a1a; }
+.soberana { border: 3px solid var(--gold) !important; width: 70% !important; height: 70% !important; }
 
-.soberana { 
-    border: 3px solid var(--gold) !important; 
-    width: 70% !important; 
-    height: 70% !important; 
-}
-
-/* Paneles de Captura (Graveyard) */
-.side-panel {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
+/* Paneles de Captura */
+.side-panel { display: flex; flex-direction: column; align-items: center; }
+.side-panel h4 { margin: 10px 0; font-size: 0.9em; text-transform: uppercase; color: var(--gold); }
 
 .graveyard { 
-    width: 65px; 
-    min-height: 480px; 
-    background: rgba(0,0,0,0.5); 
-    display: flex; 
-    flex-direction: column; /* Apilamiento de arriba hacia abajo */
-    align-items: center; 
-    gap: 8px; 
-    padding: 10px 5px; 
-    border: 1px solid var(--frame-color);
+    width: 65px; min-height: 480px; background: rgba(0,0,0,0.5); 
+    display: flex; flex-direction: column; align-items: center; 
+    gap: 8px; padding: 10px 0; border: 1px solid var(--frame-color);
 }
-
-.captured { 
-    width: 35px; 
-    height: 35px; 
-    border-radius: 50%; 
-    box-shadow: 0 2px 0 #000; 
-    animation: slideDown 0.3s ease-out; 
-}
+.captured { width: 35px; height: 35px; border-radius: 50%; box-shadow: 0 2px 0 #000; }
 
 /* Registro de Movimientos */
 #move-logger { 
-    margin-top: 20px; 
-    padding: 15px; 
-    background: #1e140d; 
-    border-left: 4px solid var(--gold); 
-    width: 100%;
-    max-width: 480px;
-    box-sizing: border-box;
+    margin-top: 20px; padding: 12px; background: #1e140d; 
+    border-left: 4px solid var(--gold); width: 100%; max-width: 480px;
+    text-align: center;
 }
-
-.logger-title { font-size: 11px; color: var(--gold); letter-spacing: 2px; margin-bottom: 5px; }
+.logger-title { font-size: 10px; color: var(--gold); letter-spacing: 2px; margin-bottom: 5px; }
 #current-move-text { font-weight: bold; font-size: 1.1em; color: #fff; }
 
-/* Indicadores de Movimiento (Dots) */
-.dot { 
-    width: 35%; 
-    height: 35%; 
-    background: rgba(46, 204, 113, 0.9); 
-    border-radius: 50%; 
-    position: absolute; 
-    z-index: 10; 
-    cursor: pointer; 
-    border: 1.5px solid #fff; 
-}
+.dot { width: 35%; height: 35%; background: rgba(46, 204, 113, 0.9); border-radius: 50%; position: absolute; z-index: 10; border: 2px solid #fff; cursor: pointer; }
 
-/* Overlays (Inicio y Fin) */
-.overlay { 
-    position: fixed; 
-    inset: 0; 
-    background: rgba(0,0,0,0.95); 
-    display: flex; 
-    justify-content: center; 
-    align-items: center; 
-    z-index: 1000; 
-}
-
-.setup-box { 
-    text-align: center; 
-    border: 1px solid var(--gold); 
-    padding: 30px; 
-    background: #3e2723; 
-    box-shadow: 0 0 50px #000;
-    max-width: 90vw;
-}
-
-.chilean-flag { 
-    width: 45px; height: 30px; border: 1px solid #777; margin: 0 auto 15px; display: flex; flex-direction: column; 
-}
-.flag-top { display: flex; height: 50%; }
-.flag-blue { background: #0039a6; width: 35%; color: white; font-size: 9px; display: flex; align-items: center; justify-content: center; }
-.flag-white { background: #fff; width: 65%; }
-.flag-red { background: #d52b1e; height: 50%; }
-
-button { 
-    padding: 12px 24px; 
-    background: var(--gold); 
-    border: none; 
-    font-weight: bold; 
-    cursor: pointer; 
-    margin: 10px 5px; 
-}
-
-@keyframes slideDown { from { transform: translateY(-30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-
-/* --- AJUSTES ESPECÍFICOS PARA MÓVILES --- */
-@media (max-width: 768px) {
+/* --- OPTIMIZACIÓN MÓVIL (PANTALLAS PEQUEÑAS) --- */
+@media (max-width: 850px) {
     #main-ui { 
         flex-direction: column; 
-        align-items: center; 
+        padding-top: 10px;
         gap: 15px;
     }
 
-    .graveyard {
-        flex-direction: row; /* Capturas en fila horizontal en celular */
-        min-height: auto;
-        width: 90vw;
-        flex-wrap: wrap;
-        justify-content: center;
-        padding: 5px;
+    #board {
+        /* Maximiza el tablero en celulares */
+        grid-template-columns: repeat(8, 11.5vw);
+        grid-template-rows: repeat(8, 11.5vw);
     }
 
-    .side-panel h4 { margin: 5px 0; font-size: 14px; }
+    .side-panel { order: 3; } /* Capturas abajo */
+    #move-logger { order: 2; width: 95vw; }
+
+    .graveyard {
+        flex-direction: row; min-height: auto; width: 95vw;
+        flex-wrap: wrap; justify-content: center; padding: 10px; gap: 5px;
+    }
 }
+
+/* Pantallas de Interfaz */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.96); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 20px; }
+.setup-box { text-align: center; border: 1px solid var(--gold); padding: 30px; background: #3e2723; width: 100%; max-width: 350px; box-shadow: 0 0 50px #000; }
+
+button { 
+    padding: 14px 28px; background: var(--gold); border: none; font-weight: bold; cursor: pointer; margin-top: 15px; color: #000; font-size: 1rem;
+    width: 100%;
+}
+button:active { transform: scale(0.98); background: #fff; }
