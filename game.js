@@ -1,7 +1,3 @@
-/** * FRONTERA: EL SISTEMA DE LAS DAMAS CHILENAS 🇨🇱
- * Motor Optimizado con Detección de Victoria y Gestión de Cadenas.
- */
-
 let board = [];
 let playerColor = 'white';
 let pangiColor = 'black';
@@ -43,13 +39,13 @@ function getValidMoves(r, c, onlyCaptures = false) {
             [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(d => {
                 let nr=r+d[0], nc=c+d[1];
                 while(nr>=0 && nr<8 && nc>=0 && nc<8 && !board[nr][nc]) {
-                    moves.push({r:nr, c:nc, type:'move'});
+                    moves.push({r:nr, c:nc, type:'a'});
                     nr+=d[0]; nc+=d[1];
                 }
             });
         } else {
             [[r+fwd, c], [r, c+1], [r, c-1]].forEach(([nr, nc]) => {
-                if (nr>=0 && nr<8 && nc>=0 && nc<8 && !board[nr][nc]) moves.push({r:nr, c:nc, type:'move'});
+                if (nr>=0 && nr<8 && nc>=0 && nc<8 && !board[nr][nc]) moves.push({r:nr, c:nc, type:'a'});
             });
         }
     }
@@ -68,61 +64,18 @@ function getValidMoves(r, c, onlyCaptures = false) {
             }
             if (victim) {
                 let tr=victim.r+d[0], tc=victim.c+d[1];
-                const isDiag = Math.abs(d[0]) === 1 && Math.abs(d[1]) === 1;
                 if (tr>=0 && tr<8 && tc>=0 && tc<8 && !board[tr][tc]) {
-                    if (isDiag) moves.push({r:tr, c:tc, type:'capture', cap:victim});
-                    else {
-                        while (tr>=0 && tr<8 && tc>=0 && tc<8 && !board[tr][tc]) {
-                            moves.push({r:tr, c:tc, type:'capture', cap:victim});
-                            tr+=d[0]; tc+=d[1];
-                        }
-                    }
+                    moves.push({r:tr, c:tc, type:'captura', cap:victim});
                 }
             }
         } else {
             const er=r+d[0]*2, ec=c+d[1]*2;
             if (er>=0 && er<8 && ec>=0 && ec<8 && board[nr][nc] && board[nr][nc].color !== p.color && !board[er][ec]) {
-                moves.push({r:er, c:ec, type:'capture', cap:{r:nr, c:nc}});
+                moves.push({r:er, c:ec, type:'captura', cap:{r:nr, c:nc}});
             }
         }
     });
     return moves;
-}
-
-function checkGameEnd() {
-    let canPlayerMove = false;
-    let canPangiMove = false;
-    let playerPieces = 0;
-    let pangiPieces = 0;
-
-    for(let r=0; r<8; r++) {
-        for(let c=0; c<8; c++) {
-            const p = board[r][c];
-            if (p) {
-                const moves = getValidMoves(r, c);
-                if (p.color === playerColor) {
-                    playerPieces++;
-                    if (moves.length > 0) canPlayerMove = true;
-                } else {
-                    pangiPieces++;
-                    if (moves.length > 0) canPangiMove = true;
-                }
-            }
-        }
-    }
-
-    if (playerPieces === 0 || !canPlayerMove) endGame(pangiColor, playerPieces === 0 ? "EXTINCIÓN" : "ACORRALAMIENTO");
-    else if (pangiPieces === 0 || !canPangiMove) endGame(playerColor, pangiPieces === 0 ? "EXTINCIÓN" : "ACORRALAMIENTO");
-}
-
-function endGame(winner, reason) {
-    const overlay = document.getElementById('end-overlay');
-    const msg = document.getElementById('end-message');
-    const res = document.getElementById('end-reason');
-    overlay.style.display = 'flex';
-    msg.innerText = winner === playerColor ? "VICTORIA" : "DERROTA";
-    msg.style.color = winner === playerColor ? "#2ecc71" : "#e74c3c";
-    res.innerText = `El bando ${winner === 'white' ? 'Blanco' : 'Negro'} gana por ${reason}.`;
 }
 
 function execute(move) {
@@ -130,23 +83,24 @@ function execute(move) {
     const fromR = selected.r, fromC = selected.c;
     const p = board[fromR][fromC];
     
+    // Registro: BLANCO/NEGRO Origen Tipo Destino
+    const colorNombre = p.color === 'white' ? 'BLANCO' : 'NEGRO';
     document.getElementById('current-move-text').innerText = 
-        `${p.color.toUpperCase()}: ${getNotation(fromR, fromC)} ${move.type==='capture'?'CAPTURA EN':'A'} ${getNotation(move.r, move.c)}`;
+        `${colorNombre}: ${getNotation(fromR, fromC)} ${move.type} ${getNotation(move.r, move.c)}`;
 
     board[move.r][move.c] = p;
     board[fromR][fromC] = null;
 
-    if (move.type === 'capture') {
-        const victim = board[move.cap.r][move.cap.c];
-        updateGraveyard(victim.color);
+    if (move.type === 'captura') {
+        const victimColor = board[move.cap.r][move.cap.c].color;
+        updateGraveyard(victimColor);
         board[move.cap.r][move.cap.c] = null;
-
         const next = getValidMoves(move.r, move.c, true);
         if (next.length > 0) {
             selected = { r: move.r, c: move.c };
             isChain = true;
             render();
-            if (turn === pangiColor) setTimeout(() => execute(next[0]), 700);
+            if (turn === pangiColor) setTimeout(() => execute(next[0]), 600);
             return;
         }
     }
@@ -157,7 +111,25 @@ function execute(move) {
     isChain = false;
     render();
     checkGameEnd();
-    if (turn === pangiColor) setTimeout(pangiAI, 1000);
+    if (turn === pangiColor) setTimeout(pangiAI, 800);
+}
+
+function checkGameEnd() {
+    let pieces = { white: 0, black: 0 }, moves = { white: 0, black: 0 };
+    for(let r=0; r<8; r++) for(let c=0; c<8; c++) {
+        let p = board[r][c];
+        if(p) { pieces[p.color]++; moves[p.color] += getValidMoves(r,c).length; }
+    }
+    if (pieces.white === 0 || moves.white === 0) endGame('black');
+    else if (pieces.black === 0 || moves.black === 0) endGame('white');
+}
+
+function endGame(winner) {
+    const overlay = document.getElementById('end-overlay');
+    const winNombre = winner === 'white' ? 'BLANCAS' : 'NEGRAS';
+    document.getElementById('end-message').innerText = `VICTORIA: ${winNombre}`;
+    document.getElementById('end-reason').innerText = `Victoria por eliminación o bloqueo estratégico.`;
+    overlay.style.display = 'flex';
 }
 
 function pangiAI() {
@@ -166,7 +138,7 @@ function pangiAI() {
         if(board[r][c]?.color === pangiColor) getValidMoves(r,c).forEach(m => options.push({origin:{r,c}, ...m}));
     }
     if(options.length > 0) {
-        options.sort((a,b) => a.type === 'capture' ? -1 : 1);
+        options.sort((a,b) => a.type === 'captura' ? -1 : 1);
         selected = options[0].origin;
         execute(options[0]);
     }
@@ -197,7 +169,6 @@ function render() {
             b.appendChild(sq);
         }
     }
-    if (isChain && turn === playerColor && selected) showDots(selected.r, selected.c);
 }
 
 function showDots(r, c) {
