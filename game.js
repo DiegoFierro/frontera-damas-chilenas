@@ -23,7 +23,6 @@ function init() {
         board[7][c] = { color: pangiColor, isSoberana: false };
     }
     render();
-    if (turn === pangiColor) setTimeout(pangiAI, 800);
 }
 
 function getNotation(r, c) { return `${COLS[c]}${r + 1}`; }
@@ -33,10 +32,11 @@ function getValidMoves(r, c, onlyCaptures = false) {
     if (!p) return [];
     let moves = [];
     const fwd = p.color === playerColor ? 1 : -1;
+    const allDirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
 
     if (!onlyCaptures) {
         if (p.isSoberana) {
-            [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]].forEach(d => {
+            allDirs.forEach(d => {
                 let nr=r+d[0], nc=c+d[1];
                 while(nr>=0 && nr<8 && nc>=0 && nc<8 && !board[nr][nc]) {
                     moves.push({r:nr, c:nc, type:'a'});
@@ -50,8 +50,8 @@ function getValidMoves(r, c, onlyCaptures = false) {
         }
     }
 
-    const dirs = p.isSoberana ? [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]] : [[fwd,0],[0,1],[0,-1],[fwd,1],[fwd,-1]];
-    dirs.forEach(d => {
+    const scanDirs = p.isSoberana ? allDirs : [[fwd,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+    scanDirs.forEach(d => {
         let nr=r+d[0], nc=c+d[1];
         if (p.isSoberana) {
             let victim = null;
@@ -63,9 +63,10 @@ function getValidMoves(r, c, onlyCaptures = false) {
                 nr+=d[0]; nc+=d[1];
             }
             if (victim) {
-                let tr=victim.r+d[0], tc=victim.c+d[1];
-                if (tr>=0 && tr<8 && tc>=0 && tc<8 && !board[tr][tc]) {
+                let tr = victim.r + d[0], tc = victim.c + d[1];
+                while(tr>=0 && tr<8 && tc>=0 && tc<8 && !board[tr][tc]) {
                     moves.push({r:tr, c:tc, type:'captura', cap:victim});
+                    tr += d[0]; tc += d[1];
                 }
             }
         } else {
@@ -82,9 +83,8 @@ function execute(move) {
     if (!selected) return;
     const fromR = selected.r, fromC = selected.c;
     const p = board[fromR][fromC];
-    
-    // Registro: BLANCO/NEGRO Origen Tipo Destino
     const colorNombre = p.color === 'white' ? 'BLANCO' : 'NEGRO';
+    
     document.getElementById('current-move-text').innerText = 
         `${colorNombre}: ${getNotation(fromR, fromC)} ${move.type} ${getNotation(move.r, move.c)}`;
 
@@ -126,9 +126,8 @@ function checkGameEnd() {
 
 function endGame(winner) {
     const overlay = document.getElementById('end-overlay');
-    const winNombre = winner === 'white' ? 'BLANCAS' : 'NEGRAS';
-    document.getElementById('end-message').innerText = `VICTORIA: ${winNombre}`;
-    document.getElementById('end-reason').innerText = `Victoria por eliminación o bloqueo estratégico.`;
+    document.getElementById('end-message').innerText = `VICTORIA: ${winner === 'white' ? 'BLANCAS' : 'NEGRAS'}`;
+    document.getElementById('end-reason').innerText = `Eliminación completa o bloqueo de movimientos.`;
     overlay.style.display = 'flex';
 }
 
