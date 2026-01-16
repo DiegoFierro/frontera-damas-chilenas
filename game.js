@@ -1,547 +1,472 @@
 /**
- * SISTEMA FRONTERA - Motor Lógico v1.9 (Refactor completo) + Ley de Cantidad
- *
- * Cambios principales en esta versión:
- * - Implementación completa de la "Ley de Cantidad": el jugador debe elegir
- *   la secuencia de captura que elimina el mayor número de piezas enemigas.
- * - Búsqueda de todas las secuencias de captura (DFS) para peones y soberanas.
- * - Coronación durante secuencias (si aplica) y continuación usando el nuevo estado.
- * - Integración con la UI refactorizada: showDots, execute y pangiAI respetan la regla.
- * - Mantenimiento del render incremental y delegación de eventos.
+ * SISTEMA FRONTERA - Motor Lógico v43.0
+ * -------------------------------------------------------------------------
+ * VERIFICACIÓN COMPLETA CONTRA MANUAL OFICIAL
+ * 
+ * IV. DINÁMICA DE LOS MANES:
+ * ✓ Movimiento: Un paso frontal o lateral (nunca atrás ni diagonal)
+ * ✓ Captura: 5 direcciones (frontal, laterales, diagonales frontales)
+ * ✓ Ley Banda: No inicia diagonal desde banda excepto fila origen (1 o 6)
+ * ✓ Carril Avance: En banda solo frontal (no diagonal ni lateral)
+ * ✓ Frenado: Tras aterrizar en banda post-diagonal → siguiente frontal
+ * 
+ * V. LA SOBERANA:
+ * ✓ Vuelo Táctico: 8 direcciones, cualquier distancia
+ * ✓ Captura Ortogonal: Deslizamiento libre
+ * ✓ Captura Diagonal: Salto seco (aterrizaje inmediato)
+ * ✓ Inercia Banda: Le afecta frenado igual que Man
+ * 
+ * VI. REGLAS GENERALES:
+ * ✓ Extracción Diferida: Piezas se retiran al final del turno
+ * ✓ Promoción en Turno: Detiene movimiento y finaliza turno
+ * ✓ Captura NO obligatoria (Libertad de Voluntad)
  */
 
-const Game = (function () {
-    'use strict';
+let board = [];
+let playerColor = 'white';
+let pangiColor = 'black';
+let turn = 'white';
+let selected = null;
+let isChain = false;
+let capturedThisTurn = []; // Para extracción diferida
+let landedInBandDiagonal = false; // Para frenado de banda
 
-    // --- Estado interno ---
-    let board = [];
-    let playerColor = 'white';
-    let pangiColor = 'black';
-    let turn = 'white';
-    let selected = null;
-    let isChain = false;
+function setupGame(color) {
+    playerColor = color;
+    pangiColor = (color === 'white') ? 'black' : 'white';
+    turn = 'white'; // Siempre empiezan blancas
+    selected = null;
+    isChain = false;
+    capturedThisTurn = [];
+    landedInBandDiagonal = false;
+    
+    board = Array(8).fill(null).map(() => Array(8).fill(null));
 
-    const BOARD_SIZE = 8;
-    const COLS = ['A','B','C','D','E','F','G','H'];
-
-    // DOM cache
-    let elBoard, squares; // squares: array of 64 square elements in DOM order
-    let elCurrentMoveText, elMoveLogger;
-    let graveyardEls = { white: null, black: null };
-
-    // Helpers
-    function createEl(tag, cls, attrs = {}) {
-        const el = document.createElement(tag);
-        if (cls) el.className = cls;
-        Object.keys(attrs).forEach(k => {
-            if (k === 'text') el.textContent = attrs[k];
-            else if (k.startsWith('data-')) el.setAttribute(k, attrs[k]);
-            else el.setAttribute(k, attrs[k]);
-        });
-        return el;
+    // Despliegue inicial - Muro de Fondo
+    for (let c = 0; c < 8; c++) {
+        board[0][c] = { color: 'white', isSoberana: false };
+        board[1][c] = { color: 'white', isSoberana: false };
+        board[6][c] = { color: 'black', isSoberana: false };
+        board[7][c] = { color: 'black', isSoberana: false };
     }
 
-    function idxFromRC(r, c) {
-        const rowsMap = (playerColor === 'white') ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
-        return rowsMap.indexOf(r) * BOARD_SIZE + c;
+    const overlay = document.getElementById('setup-overlay');
+    if (overlay) overlay.style.display = 'none';
+
+    updateLog("SISTEMA FRONTERA ONLINE. Turno inicial: Blancas.");
+    renderTheater();
+    
+    // Si el jugador eligió negras, la máquina (blancas) inicia
+    if (turn === pangiColor) {
+        setTimeout(pangiAI, 1000);
     }
+}
 
-    function cloneBoard(src) {
-        return src.map(row => row.map(cell => cell ? { color: cell.color, isSoberana: !!cell.isSoberana } : null));
-    }
+/**
+ * MOTOR DE POSIBILIDADES V42.0 - FIEL AL MANUAL
+ */
+function getValidMoves(r, c, forceCapturesOnly = false) {
+    const unit = board[r][c];
+    if (unit === null) return [];
+    
+    let actions = [];
 
-    // --- Capture sequence generation (Ley de Cantidad) ---
-    // Returns array of sequences; each sequence is an array of move objects {r,c,type:'captura', cap:{r,c}}
-    function generateCaptureSequences(bd, r, c) {
-        const p = bd[r][c];
-        if (!p) return [];
-        const fwd = p.color === 'white' ? 1 : -1;
-        const soberanaDirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-        const peonCapDirs = [[fwd, 0], [fwd, 1], [fwd, -1], [0, 1], [0, -1]];
+    if (unit.isSoberana) {
+        // SOBERANA: 8 direcciones
+        const dirs = [
+            [1, 0], [-1, 0], [0, 1], [0, -1],  // Ortogonales N, S, E, O
+            [1, 1], [1, -1], [-1, 1], [-1, -1]  // Diagonales NE, NO, SE, SO
+        ];
 
-        const seqs = [];
+        for (let [dr, dc] of dirs) {
+            const isDiagonal = (dr !== 0 && dc !== 0);
+            let nR = r + dr, nC = c + dc;
+            let victim = null;
 
-        // Internal DFS; bd is a cloned board for independent path
-        function dfs(boardState, cr, cc, isSoberana) {
-            let found = false;
-            const results = [];
-            const activeCapDirs = isSoberana ? soberanaDirs : peonCapDirs;
-
-            if (isSoberana) {
-                // Soberana: search along rays
-                activeCapDirs.forEach(d => {
-                    let nr = cr + d[0], nc = cc + d[1];
-                    // find first piece in line
-                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
-                        if (boardState[nr][nc]) {
-                            if (boardState[nr][nc].color !== boardState[cr][cc].color) {
-                                // victim found at nr,nc -> possible landings after victim
-                                let vr = nr, vc = nc;
-                                let tr = vr + d[0], tc = vc + d[1];
-                                while (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
-                                    if (boardState[tr][tc]) break; // blocked by piece
-                                    // simulate capture: move piece to tr,tc and remove victim
-                                    const nextBoard = cloneBoard(boardState);
-                                    const movingPiece = { color: nextBoard[cr][cc].color, isSoberana: isSoberana };
-                                    nextBoard[cr][cc] = null;
-                                    // remove victim
-                                    nextBoard[vr][vc] = null;
-                                    // place piece
-                                    // consider coronation: if peon (not isSoberana) reaching last rank becomes soberana
-                                    movingPiece.isSoberana = movingPiece.isSoberana || (movingPiece.isSoberana ? true : (tr === (movingPiece.color === 'white' ? 7 : 0)));
-                                    nextBoard[tr][tc] = movingPiece;
-
-                                    // Recurse
-                                    const further = dfs(nextBoard, tr, tc, movingPiece.isSoberana);
-                                    const move = { r: tr, c: tc, type: 'captura', cap: { r: vr, c: vc } };
-                                    if (further.length > 0) {
-                                        further.forEach(fseq => results.push([move, ...fseq]));
-                                    } else {
-                                        results.push([move]);
-                                    }
-                                    found = true;
-
-                                    tr += d[0]; tc += d[1];
-                                }
-                            }
-                            break; // stop at first piece
-                        }
-                        nr += d[0]; nc += d[1];
-                    }
-                });
-            } else {
-                // Peon captures: victim adjacent, landing the cell after
-                activeCapDirs.forEach(d => {
-                    const nr = cr + d[0], nc = cc + d[1];
-                    const er = cr + d[0] * 2, ec = cc + d[1] * 2;
-                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && er >= 0 && er < 8 && ec >= 0 && ec < 8) {
-                        if (boardState[nr][nc] && boardState[nr][nc].color !== boardState[cr][cc].color && !boardState[er][ec]) {
-                            const nextBoard = cloneBoard(boardState);
-                            const movingPiece = { color: nextBoard[cr][cc].color, isSoberana: false };
-                            nextBoard[cr][cc] = null;
-                            nextBoard[nr][nc] = null;
-                            // coronation
-                            movingPiece.isSoberana = (er === (movingPiece.color === 'white' ? 7 : 0));
-                            nextBoard[er][ec] = movingPiece;
-
-                            const further = dfs(nextBoard, er, ec, movingPiece.isSoberana);
-                            const move = { r: er, c: ec, type: 'captura', cap: { r: nr, c: nc } };
-                            if (further.length > 0) {
-                                further.forEach(fseq => results.push([move, ...fseq]));
-                            } else {
-                                results.push([move]);
-                            }
-                            found = true;
-                        }
-                    }
-                });
-            }
-
-            return results;
-        }
-
-        // Start DFS on cloned board
-        const cloned = cloneBoard(bd);
-        // Ensure starting square has a movable piece preserved
-        if (!cloned[r][c]) return [];
-        const startIsSoberana = !!cloned[r][c].isSoberana;
-        const all = dfs(cloned, r, c, startIsSoberana);
-        return all; // array of sequences (arrays)
-    }
-
-    // Return maximum capture length available for the given player across the whole board
-    function maxCapturesForPlayer(color) {
-        let max = 0;
-        for (let r = 0; r < 8; r++) {
-            for (let c = 0; c < 8; c++) {
-                const p = board[r][c];
-                if (!p || p.color !== color) continue;
-                const seqs = generateCaptureSequences(board, r, c);
-                seqs.forEach(s => { if (s.length > max) max = s.length; });
-            }
-        }
-        return max;
-    }
-
-    // --- Inicialización DOM ---
-    function initBoardDOM() {
-        elBoard = document.getElementById('board');
-        elMoveLogger = document.getElementById('move-logger');
-        elCurrentMoveText = document.getElementById('current-move-text');
-        graveyardEls.white = document.getElementById('graveyard-white');
-        graveyardEls.black = document.getElementById('graveyard-black');
-
-        if (!elBoard) throw new Error('#board element not found');
-
-        // Build squares once in orientation order
-        elBoard.innerHTML = '';
-        squares = [];
-        const fragment = document.createDocumentFragment();
-        const rows = (playerColor === 'white') ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
-
-        rows.forEach(r => {
-            for (let c = 0; c < BOARD_SIZE; c++) {
-                const sq = createEl('div', 'square', {
-                    'data-r': r,
-                    'data-c': c,
-                    'role': 'button',
-                    'aria-label': `Casilla ${COLS[c]}${r+1}`
-                });
-                fragment.appendChild(sq);
-                squares.push(sq);
-            }
-        });
-
-        elBoard.appendChild(fragment);
-
-        // Delegation: one handler on board for clicks
-        elBoard.removeEventListener('click', onBoardClick);
-        elBoard.addEventListener('click', onBoardClick);
-    }
-
-    // Delegated click handler
-    function onBoardClick(ev) {
-        const dot = ev.target.closest('.dot');
-        if (dot) {
-            ev.stopPropagation();
-            const moveJson = dot.getAttribute('data-move');
-            try {
-                const move = JSON.parse(moveJson);
-                execute(move);
-            } catch (e) {
-                console.warn('Invalid move data', e);
-            }
-            return;
-        }
-
-        const pieceEl = ev.target.closest('.piece');
-        if (pieceEl) {
-            const square = pieceEl.parentElement;
-            const r = parseInt(square.getAttribute('data-r'), 10);
-            const c = parseInt(square.getAttribute('data-c'), 10);
-            const p = board[r][c];
-            if (!p) return;
-            if (turn === playerColor && p.color === playerColor) {
-                selected = { r, c };
-                render();
-                showDots(r, c);
-            }
-            return;
-        }
-
-        // Click on empty square: clear selection
-        const sq = ev.target.closest('.square');
-        if (sq) {
-            selected = null;
-            clearDots();
-            render();
-        }
-    }
-
-    // -- Render incremental: update piece elements, selection, move text
-    function render() {
-        if (!squares || squares.length !== BOARD_SIZE * BOARD_SIZE) {
-            initBoardDOM();
-        }
-
-        for (let r = 0; r < BOARD_SIZE; r++) {
-            for (let c = 0; c < BOARD_SIZE; c++) {
-                const idx = idxFromRC(r, c);
-                const sq = squares[idx];
-                const p = board[r][c];
-                const existing = sq.querySelector('.piece');
-
-                if (p) {
-                    if (existing) {
-                        existing.className = `piece ${p.color} ${p.isSoberana ? 'soberana' : ''}`.trim();
-                    } else {
-                        const pEl = createEl('div', `piece ${p.color} ${p.isSoberana ? 'soberana' : ''}`.trim());
-                        sq.appendChild(pEl);
+            // Buscar víctima en la dirección
+            while (nR >= 0 && nR < 8 && nC >= 0 && nC < 8) {
+                if (board[nR][nC] === null) {
+                    // Vuelo Táctico: movimiento sin captura
+                    if (!victim && !forceCapturesOnly && !isChain) {
+                        actions.push({ r: nR, c: nC, type: 'move' });
                     }
                 } else {
-                    if (existing) existing.remove();
+                    if (board[nR][nC].color !== unit.color && !victim) {
+                        victim = { r: nR, c: nC };
+                    }
+                    break;
                 }
-
-                if (selected && selected.r === r && selected.c === c) sq.classList.add('selected');
-                else sq.classList.remove('selected');
+                nR += dr;
+                nC += dc;
             }
-        }
 
-        if (elCurrentMoveText) {
-            if (!elCurrentMoveText.dataset.preset) {
-                elCurrentMoveText.textContent = (turn === playerColor) ? 'TU TURNO' : 'TURNO ENEMIGO';
-            }
-        }
-    }
-
-    function clearDots() {
-        const existing = elBoard.querySelectorAll('.dot');
-        existing.forEach(d => d.remove());
-    }
-
-    // showDots: attach data-move JSON to each dot; append to target square
-    function showDots(r, c) {
-        clearDots();
-        const moves = getValidMoves(r, c, isChain);
-        if (!moves || !moves.length) return;
-
-        moves.forEach(m => {
-            const dot = createEl('div', 'dot');
-            dot.setAttribute('data-move', JSON.stringify(m));
-            dot.setAttribute('title', `Mover a ${COLS[m.c]}${m.r + 1}`);
-            const idx = idxFromRC(m.r, m.c);
-            squares[idx].appendChild(dot);
-        });
-    }
-
-    function updateMoveLog(text) {
-        if (!elCurrentMoveText) return;
-        elCurrentMoveText.textContent = text;
-        elCurrentMoveText.dataset.preset = '1';
-    }
-
-    function updateGraveyard(color) {
-        const container = graveyardEls[color];
-        if (!container) return;
-        const div = createEl('div', `captured ${color}`);
-        container.appendChild(div);
-    }
-
-    // --- Inicialización y setup ---
-    function setupGame(color) {
-        playerColor = color || 'white';
-        pangiColor = (playerColor === 'white') ? 'black' : 'white';
-        turn = 'white';
-        selected = null;
-        isChain = false;
-
-        board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null));
-        for (let c = 0; c < 8; c++) {
-            board[0][c] = { color: 'white', isSoberana: false };
-            board[1][c] = { color: 'white', isSoberana: false };
-            board[6][c] = { color: 'black', isSoberana: false };
-            board[7][c] = { color: 'black', isSoberana: false };
-        }
-
-        const setupOverlay = document.getElementById('setup-overlay');
-        if (setupOverlay) setupOverlay.style.display = 'none';
-
-        initBoardDOM();
-        render();
-
-        if (turn === pangiColor) setTimeout(pangiAI, 600);
-    }
-
-    function init() { setupGame(playerColor); }
-
-    function getNotation(r, c) { return `${COLS[c]}${r + 1}`; }
-
-    // getValidMoves now enforces Ley de Cantidad
-    function getValidMoves(r, c, onlyCaptures = false) {
-        const p = board[r][c];
-        if (!p) return [];
-
-        // First, compute global maximum captures for the player (only when not in chain)
-        let globalMax = 0;
-        if (!onlyCaptures) globalMax = maxCapturesForPlayer(p.color);
-
-        // If we're in a chain or onlyCaptures requested, compute sequences from this piece
-        const sequencesFromPiece = generateCaptureSequences(board, r, c);
-        const localMax = sequencesFromPiece.reduce((m, s) => Math.max(m, s.length), 0);
-
-        // If global captures exist (>0) and not onlyCaptures: we must force capture moves that are part of sequences with length == globalMax
-        // If onlyCaptures (chain) or globalMax === 0: behave accordingly (either force local captures or allow simple moves)
-
-        const moves = [];
-        const fwd = p.color === 'white' ? 1 : -1;
-        const soberanaDirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-        const peonDirs = [[fwd, 0], [0, 1], [0, -1]];
-        const peonCapDirs = [[fwd, 0], [fwd, 1], [fwd, -1], [0, 1], [0, -1]];
-
-        // If captures are required (globalMax > 0) then only include capture moves that begin maximal sequences
-        if (globalMax > 0) {
-            // collect first moves from sequences across all pieces matching globalMax
-            const allowedFirstMoves = new Set();
-            for (let rr = 0; rr < 8; rr++) for (let cc = 0; cc < 8; cc++) {
-                const piece = board[rr][cc];
-                if (!piece || piece.color !== p.color) continue;
-                const seqs = generateCaptureSequences(board, rr, cc);
-                seqs.forEach(s => {
-                    if (s.length === globalMax) {
-                        const first = s[0];
-                        // stringify origin+dest to identify moves uniquely: origin included elsewhere; we will compare by origin coordinates
-                        const key = `${rr},${cc}->${first.r},${first.c}`;
-                        allowedFirstMoves.add(key);
+            // Procesar capturas si hay víctima
+            if (victim) {
+                if (isDiagonal) {
+                    // CAPTURA DIAGONAL: Salto Seco (aterrizaje forzoso inmediato)
+                    let lR = victim.r + dr, lC = victim.c + dc;
+                    if (lR >= 0 && lR < 8 && lC >= 0 && lC < 8 && board[lR][lC] === null) {
+                        // Verificar Frenado de Banda
+                        if (!applyBandFrenado(dr, dc)) {
+                            actions.push({ r: lR, c: lC, type: 'capture', victim });
+                        }
                     }
-                });
-            }
-            // Now gather allowed moves for this specific piece (r,c)
-            sequencesFromPiece.forEach(s => {
-                if (s.length === globalMax) moves.push({ r: s[0].r, c: s[0].c, type: 'captura', cap: s[0].cap, origin: { r, c } });
-            });
-            return moves;
-        }
-
-        // If no global captures or we're inside a chain (onlyCaptures true): prefer local captures if any
-        if (localMax > 0) {
-            // Only include first steps of sequences that reach localMax
-            sequencesFromPiece.forEach(s => {
-                if (s.length === localMax) moves.push({ r: s[0].r, c: s[0].c, type: 'captura', cap: s[0].cap });
-            });
-            return moves;
-        }
-
-        // No captures available: allow simple moves
-        if (!onlyCaptures) {
-            if (p.isSoberana) {
-                soberanaDirs.forEach(d => {
-                    let nr = r + d[0], nc = c + d[1];
-                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && !board[nr][nc]) {
-                        moves.push({ r: nr, c: nc, type: 'a' });
-                        nr += d[0]; nc += d[1];
+                } else {
+                    // CAPTURA ORTOGONAL: Deslizamiento libre
+                    let lR = victim.r + dr, lC = victim.c + dc;
+                    while (lR >= 0 && lR < 8 && lC >= 0 && lC < 8 && board[lR][lC] === null) {
+                        // Verificar Frenado de Banda
+                        if (!applyBandFrenado(dr, dc)) {
+                            actions.push({ r: lR, c: lC, type: 'capture', victim });
+                        }
+                        lR += dr;
+                        lC += dc;
                     }
-                });
-            } else {
-                peonDirs.forEach(d => {
-                    let nr = r + d[0], nc = c + d[1];
-                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && !board[nr][nc]) moves.push({ r: nr, c: nc, type: 'a' });
-                });
+                }
+            }
+        }
+    } else {
+        // MAN (PEÓN)
+        const fwd = (unit.color === 'white') ? 1 : -1;
+        
+        // MOVIMIENTO ORDINARIO: Solo ortogonal (adelante, izquierda, derecha)
+        // "Un paso al frente o lateral (nunca atrás ni diagonal)"
+        if (!forceCapturesOnly && !isChain) {
+            const moveDirs = [[fwd, 0], [0, 1], [0, -1]];
+            for (let [dr, dc] of moveDirs) {
+                let nr = r + dr, nc = c + dc;
+                if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && board[nr][nc] === null) {
+                    actions.push({ r: nr, c: nc, type: 'move' });
+                }
             }
         }
 
-        return moves;
+        // PROTOCOLO DE CAPTURA: 5 direcciones
+        // "Frontal, laterales y diagonales frontales"
+        // NO incluye capturas hacia atrás
+        const captureDirs = [
+            [fwd, 0],    // Frontal
+            [0, 1],      // Lateral derecha
+            [0, -1],     // Lateral izquierda
+            [fwd, 1],    // Diagonal frontal derecha
+            [fwd, -1]    // Diagonal frontal izquierda
+        ];
+        
+        for (let [dr, dc] of captureDirs) {
+            let vR = r + dr, vC = c + dc;
+            let lR = r + (dr * 2), lC = c + (dc * 2);
+            
+            if (lR >= 0 && lR < 8 && lC >= 0 && lC < 8) {
+                if (board[vR][vC] !== null && board[vR][vC].color !== unit.color && board[lR][lC] === null) {
+                    // Verificar Ley Estricta de la Banda
+                    if (!violatesStrictBandLaw(r, c, dr, dc)) {
+                        // Verificar Frenado de Banda
+                        if (!applyBandFrenado(dr, dc)) {
+                            actions.push({ r: lR, c: lC, type: 'capture', victim: { r: vR, c: vC } });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return actions;
+}
+
+/**
+ * LEY ESTRICTA DE LA BANDA - Man
+ * "Restricción de Inicio: Un Man en la banda no puede iniciar capturas diagonales (salvo desde su fila de origen 2 o 7)"
+ * "Carril de Avance: Al estar en la banda, el Man solo puede capturar hacia adelante. Se anulan sus diagonales y laterales"
+ * Nota: Filas de origen son 1 para blancas y 6 para negras (índice 0-7)
+ */
+function violatesStrictBandLaw(r, c, dr, dc) {
+    const piece = board[r][c];
+    const isInBand = (c === 0 || c === 7);
+    
+    if (!isInBand) return false;
+    
+    // Filas de origen: 1 para blancas (segunda fila), 6 para negras (séptima fila)
+    const isOriginRow = (piece.color === 'white' && r === 1) || 
+                        (piece.color === 'black' && r === 6);
+    
+    const isDiagonal = (dr !== 0 && dc !== 0);
+    const isLateral = (dr === 0 && dc !== 0);
+    const fwd = (piece.color === 'white') ? 1 : -1;
+    const isFrontal = (dr === fwd && dc === 0);
+    
+    // Restricción de Inicio: No puede INICIAR captura diagonal desde banda (excepto fila origen)
+    if (!isChain && isDiagonal && !isOriginRow) {
+        return true;
+    }
+    
+    // Carril de Avance: En banda solo puede capturar frontal (no diagonal ni lateral)
+    // Excepto en fila de origen donde tiene todos sus rumbos
+    if (isInBand && !isOriginRow) {
+        if (!isFrontal) {
+            return true; // Bloquea diagonales y laterales
+        }
+    }
+    
+    return false;
+}
+
+/**
+ * FRENADO DE BANDA (INERCIA) - Soberana y Man
+ * "En una captura múltiple, si un Man aterriza en un lateral tras un salto diagonal,
+ *  su siguiente salto en ese mismo combo debe ser estrictamente frontal"
+ * Aplica también a Soberana
+ */
+function applyBandFrenado(dr, dc) {
+    // Si en el movimiento anterior aterrizó en banda tras diagonal
+    // este movimiento DEBE ser frontal
+    if (landedInBandDiagonal) {
+        const isFrontal = (dc === 0); // Frontal es cuando no hay movimiento horizontal
+        if (!isFrontal) {
+            return true; // Bloqueado, debe ser frontal
+        }
+    }
+    return false;
+}
+
+function executeAction(action) {
+    const piece = board[selected.r][selected.c];
+    const cName = (piece.color === 'white') ? "BLANCAS" : "NEGRAS";
+
+    if (action.type === 'capture') {
+        updateLog(`CAPTURA: ${cName} elimina unidad en ${action.victim.r}:${action.victim.c}`);
+        capturedThisTurn.push({ r: action.victim.r, c: action.victim.c });
+        
+        // FRENADO DE BANDA: Verificar si aterrizó en banda (lateral) tras diagonal
+        const landedInBand = (action.c === 0 || action.c === 7);
+        const wasDiagonal = (action.victim.c !== selected.c); // Si cambió columna = diagonal
+        landedInBandDiagonal = (landedInBand && wasDiagonal);
+        
+        if (landedInBandDiagonal) {
+            updateLog(`FRENADO: Aterrizó en banda tras diagonal. Siguiente debe ser frontal.`);
+        }
+    } else {
+        const from = String.fromCharCode(65 + selected.c) + (selected.r + 1);
+        const to = String.fromCharCode(65 + action.c) + (action.r + 1);
+        updateLog(`MOVIMIENTO: ${cName} de ${from} a ${to}`);
+        landedInBandDiagonal = false;
     }
 
-    function execute(move) {
-        if (!move) return;
+    board[action.r][action.c] = piece;
+    board[selected.r][selected.c] = null;
 
-        let fromR, fromC;
-        if (move.origin) {
-            fromR = move.origin.r; fromC = move.origin.c;
-        } else if (selected) {
-            fromR = selected.r; fromC = selected.c;
-        } else if (move.from) {
-            fromR = move.from.r; fromC = move.from.c;
-        } else {
+    // Comprobar Ascenso a Soberana
+    const promoted = checkPromotion(piece, action.r);
+    if (promoted) {
+        updateLog(`EVENTO: ${cName} asciende a SOBERANA.`);
+        // "Si un Man llega a la fila de coronación durante una serie de saltos,
+        //  el movimiento se detiene, se corona y el turno finaliza"
+        if (action.type === 'capture') {
+            finalizeTurn();
             return;
         }
-
-        const p = board[fromR][fromC];
-        if (!p) return;
-
-        const moveText = `${p.color.toUpperCase()}: ${getNotation(fromR, fromC)} ${move.type} ${getNotation(move.r, move.c)}`;
-        updateMoveLog(moveText);
-
-        board[move.r][move.c] = p;
-        board[fromR][fromC] = null;
-
-        if (move.type === 'captura' && move.cap) {
-            if (board[move.cap.r] && board[move.cap.r][move.cap.c]) updateGraveyard(board[move.cap.r][move.cap.c].color);
-            board[move.cap.r][move.cap.c] = null;
-
-            // After capture, check for further captures from new pos (chain)
-            const nextSeqs = generateCaptureSequences(board, move.r, move.c);
-            if (nextSeqs.length > 0) {
-                selected = { r: move.r, c: move.c };
-                isChain = true;
-                render();
-                // If opponent AI is moving in chain, auto-play first continuation
-                if (turn === pangiColor) setTimeout(() => {
-                    // choose continuation that leads to maximum captures (local)
-                    const localMax = nextSeqs.reduce((m,s) => Math.max(m, s.length), 0);
-                    const best = nextSeqs.find(s => s.length === localMax);
-                    if (best) execute(best[0]);
-                }, 300);
-                return;
-            }
-        }
-
-        // Coronación
-        if (move.r === (p.color === 'white' ? 7 : 0)) p.isSoberana = true;
-
-        // Cambiar turno
-        turn = (turn === 'white') ? 'black' : 'white';
-        selected = null;
-        isChain = false;
-        render();
-
-        if (!checkGameEnd() && turn === pangiColor) setTimeout(pangiAI, 600);
     }
 
-    function pangiAI() {
-        let options = [];
-        for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
-            if (board[r][c]?.color === pangiColor) {
-                getValidMoves(r,c).forEach(m => options.push({ origin: { r, c }, ...m }));
-            }
+    // Cadena de captura múltiple
+    if (action.type === 'capture') {
+        const nextMoves = getValidMoves(action.r, action.c, true);
+        if (nextMoves.length > 0) {
+            updateLog(`CADENA: ${cName} tiene ataques adicionales disponibles.`);
+            selected = { r: action.r, c: action.c };
+            isChain = true;
+            renderTheater();
+            drawDots(action.r, action.c);
+            return;
         }
-        if (options.length === 0) return;
-
-        // Prefer captures (options should already be filtered by Ley de Cantidad), else random
-        const captures = options.filter(o => o.type === 'captura');
-        let move;
-        if (captures.length > 0) {
-            // Heuristic: prefer moves that lead to coronation or that maximize immediate sequence length
-            // Compute sequence lengths for each capture option
-            let best = null; let bestLen = -1;
-            captures.forEach(o => {
-                // simulate move and compute remaining capture chain length
-                const copy = cloneBoard(board);
-                const p = copy[o.origin.r][o.origin.c];
-                if (!p) return;
-                copy[o.r][o.c] = p;
-                copy[o.origin.r][o.origin.c] = null;
-                if (o.cap) copy[o.cap.r][o.cap.c] = null;
-                // coronation
-                if (o.r === (p.color === 'white' ? 7 : 0)) p.isSoberana = true;
-                const seqs = generateCaptureSequences(copy, o.r, o.c);
-                const len = seqs.reduce((m,s) => Math.max(m, s.length), 0) + 1; // include this capture
-                if (len > bestLen) { bestLen = len; best = o; }
-            });
-            move = best || captures[0];
-        } else {
-            move = options[Math.floor(Math.random() * options.length)];
-        }
-
-        selected = move.origin;
-        execute(move);
     }
 
-    function checkGameEnd() {
-        let pieces = { white: 0, black: 0 }, moves = { white: 0, black: 0 };
-        for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) {
+    finalizeTurn();
+}
+
+function checkPromotion(piece, row) {
+    if (piece.color === 'white' && row === 7 && !piece.isSoberana) {
+        piece.isSoberana = true;
+        return true;
+    }
+    if (piece.color === 'black' && row === 0 && !piece.isSoberana) {
+        piece.isSoberana = true;
+        return true;
+    }
+    return false;
+}
+
+function finalizeTurn() {
+    // EXTRACCIÓN DIFERIDA: "Las piezas capturadas se retiran al finalizar el turno completo"
+    for (let cap of capturedThisTurn) {
+        const victim = board[cap.r][cap.c];
+        if (victim) {
+            updateGraveyard(victim.color);
+            board[cap.r][cap.c] = null;
+        }
+    }
+    capturedThisTurn = [];
+    landedInBandDiagonal = false; // Resetear al finalizar turno
+
+    turn = (turn === 'white') ? 'black' : 'white';
+    updateLog(`TURNO: ${turn === 'white' ? "BLANCAS" : "NEGRAS"}`);
+    selected = null;
+    isChain = false;
+    renderTheater();
+    
+    // Verificar victoria
+    if (checkVictory()) return;
+    
+    if (turn === pangiColor) setTimeout(pangiAI, 1000);
+}
+
+function checkVictory() {
+    let whitePieces = 0, blackPieces = 0;
+    let whiteCanMove = false, blackCanMove = false;
+    
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (board[r][c]) {
+                if (board[r][c].color === 'white') {
+                    whitePieces++;
+                    if (!whiteCanMove && getValidMoves(r, c).length > 0) whiteCanMove = true;
+                } else {
+                    blackPieces++;
+                    if (!blackCanMove && getValidMoves(r, c).length > 0) blackCanMove = true;
+                }
+            }
+        }
+    }
+    
+    if (blackPieces === 0 || !blackCanMove) {
+        showEndGame("VICTORIA BLANCAS", blackPieces === 0 ? "Aniquilación total" : "Bloqueo estratégico");
+        return true;
+    }
+    if (whitePieces === 0 || !whiteCanMove) {
+        showEndGame("VICTORIA NEGRAS", whitePieces === 0 ? "Aniquilación total" : "Bloqueo estratégico");
+        return true;
+    }
+    
+    return false;
+}
+
+function showEndGame(message, reason) {
+    const overlay = document.getElementById('end-overlay');
+    const msgEl = document.getElementById('end-message');
+    const reasonEl = document.getElementById('end-reason');
+    
+    if (overlay && msgEl && reasonEl) {
+        msgEl.textContent = message;
+        reasonEl.textContent = reason;
+        overlay.style.display = 'flex';
+    }
+}
+
+function updateLog(msg) {
+    const log = document.getElementById('current-move-text');
+    if (log) log.innerText = msg;
+    console.log("[SISTEMA FRONTERA] " + msg);
+}
+
+function renderTheater() {
+    const boardDiv = document.getElementById('board');
+    boardDiv.innerHTML = '';
+    const rowsMap = (playerColor === 'white') ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
+    
+    for (let i = 0; i < 8; i++) {
+        const r = rowsMap[i];
+        for (let c = 0; c < 8; c++) {
+            const sq = document.createElement('div');
+            sq.className = 'square';
             const p = board[r][c];
-            if (!p) continue;
-            pieces[p.color]++;
-            moves[p.color] += getValidMoves(r, c).length;
+            
+            if (p !== null) {
+                const pDiv = document.createElement('div');
+                pDiv.className = 'piece ' + p.color + (p.isSoberana ? ' soberana' : '');
+                
+                if (turn === playerColor && p.color === playerColor) {
+                    pDiv.onclick = (e) => {
+                        e.stopPropagation();
+                        if (isChain) {
+                            if (selected && selected.r === r && selected.c === c) {
+                                finalizeTurn();
+                                updateLog("SISTEMA: Cadena finalizada voluntariamente.");
+                            }
+                        } else {
+                            selected = { r, c };
+                            renderTheater();
+                            drawDots(r, c);
+                        }
+                    };
+                }
+                sq.appendChild(pDiv);
+            }
+            boardDiv.appendChild(sq);
         }
-        if (pieces.white === 0 || (turn === 'white' && moves.white === 0)) { endGame('NEGRO'); return true; }
-        if (pieces.black === 0 || (turn === 'black' && moves.black === 0)) { endGame('BLANCO'); return true; }
-        return false;
     }
+}
 
-    function endGame(winner) {
-        const endOverlay = document.getElementById('end-overlay');
-        if (endOverlay) {
-            const em = document.getElementById('end-message');
-            const er = document.getElementById('end-reason');
-            if (em) em.innerText = `VICTORIA: ${winner}`;
-            if (er) er.innerText = 'Un bando ha sido neutralizado o bloqueado.';
-            endOverlay.style.display = 'flex';
-        } else {
-            alert(`VICTORIA: ${winner}`);
+function drawDots(r, c) {
+    const moves = getValidMoves(r, c, isChain);
+    const squares = document.getElementById('board').children;
+    const rowsMap = (playerColor === 'white') ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
+    
+    for (let m of moves) {
+        const dot = document.createElement('div');
+        dot.className = 'dot';
+        
+        if (m.type === 'capture') {
+            dot.style.backgroundColor = 'red';
+            dot.style.boxShadow = '0 0 10px red';
+            dot.style.border = '2px solid white';
+        }
+        
+        dot.onclick = (e) => { e.stopPropagation(); executeAction(m); };
+        
+        let visualRow = rowsMap.indexOf(m.r);
+        const index = (visualRow * 8) + m.c;
+        if (squares[index]) squares[index].appendChild(dot);
+    }
+}
+
+function updateGraveyard(color) {
+    const trayId = (color === 'white') ? 'graveyard-black' : 'graveyard-white';
+    const tray = document.getElementById(trayId);
+    if (tray) {
+        const p = document.createElement('div');
+        p.className = 'captured ' + color;
+        tray.appendChild(p);
+    }
+}
+
+function pangiAI() {
+    // Verificar que es el turno de Pangi
+    if (turn !== pangiColor) return;
+    
+    // IA básica: Prioriza capturas pero no está obligado
+    let allMoves = [];
+    let captures = [];
+    
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            if (board[r][c] && board[r][c].color === pangiColor) {
+                const moves = getValidMoves(r, c);
+                for (let m of moves) {
+                    const entry = { origin: {r, c}, move: m };
+                    allMoves.push(entry);
+                    if (m.type === 'capture') captures.push(entry);
+                }
+            }
         }
     }
-
-    // Public API
-    return {
-        init,
-        setupGame,
-        render,
-        getNotation,
-        _debug: () => ({ board, playerColor, pangiColor, turn, selected, isChain }),
-        setPlayerColor: (c) => { playerColor = c; pangiColor = (c === 'white' ? 'black' : 'white'); }
-    };
-})();
-
-document.addEventListener('DOMContentLoaded', () => { try { Game.init(); } catch (e) { console.warn('Game init error:', e); } });
+    
+    if (allMoves.length === 0) {
+        updateLog("SISTEMA: Pangi no tiene movimientos válidos.");
+        return;
+    }
+    
+    // Priorizar capturas si existen (pero no es obligatorio)
+    const pool = captures.length > 0 ? captures : allMoves;
+    const choice = pool[Math.floor(Math.random() * pool.length)];
+    
+    selected = choice.origin;
+    executeAction(choice.move);
+}
