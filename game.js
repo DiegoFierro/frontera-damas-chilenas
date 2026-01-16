@@ -1,14 +1,13 @@
 /**
- * SISTEMA FRONTERA - Motor Lógico v1.9 (Refactor completo)
+ * SISTEMA FRONTERA - Motor Lógico v1.9 (Refactor completo) + Ley de Cantidad
  *
- * Cambios principales:
- * - Encapsulado en un módulo `Game` para evitar globals.
- * - Creación del DOM del tablero una sola vez (initBoardDOM) y render incremental.
- * - Delegación de eventos para piezas y puntos de movimiento (menos listeners).
- * - showDots guarda el movimiento en data-move (JSON) para ejecutar sin búsquedas costosas.
- * - updateGraveyard optimizado y accesibilidad mejorada (atributos ARIA).
- * - Mantiene la lógica original de reglas (getValidMoves, execute, pangiAI, checkGameEnd)
- *   integrada en el módulo, con comportamiento equivalente al original.
+ * Cambios principales en esta versión:
+ * - Implementación completa de la "Ley de Cantidad": el jugador debe elegir
+ *   la secuencia de captura que elimina el mayor número de piezas enemigas.
+ * - Búsqueda de todas las secuencias de captura (DFS) para peones y soberanas.
+ * - Coronación durante secuencias (si aplica) y continuación usando el nuevo estado.
+ * - Integración con la UI refactorizada: showDots, execute y pangiAI respetan la regla.
+ * - Mantenimiento del render incremental y delegación de eventos.
  */
 
 const Game = (function () {
@@ -45,6 +44,123 @@ const Game = (function () {
     function idxFromRC(r, c) {
         const rowsMap = (playerColor === 'white') ? [7,6,5,4,3,2,1,0] : [0,1,2,3,4,5,6,7];
         return rowsMap.indexOf(r) * BOARD_SIZE + c;
+    }
+
+    function cloneBoard(src) {
+        return src.map(row => row.map(cell => cell ? { color: cell.color, isSoberana: !!cell.isSoberana } : null));
+    }
+
+    // --- Capture sequence generation (Ley de Cantidad) ---
+    // Returns array of sequences; each sequence is an array of move objects {r,c,type:'captura', cap:{r,c}}
+    function generateCaptureSequences(bd, r, c) {
+        const p = bd[r][c];
+        if (!p) return [];
+        const fwd = p.color === 'white' ? 1 : -1;
+        const soberanaDirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+        const peonCapDirs = [[fwd, 0], [fwd, 1], [fwd, -1], [0, 1], [0, -1]];
+
+        const seqs = [];
+
+        // Internal DFS; bd is a cloned board for independent path
+        function dfs(boardState, cr, cc, isSoberana) {
+            let found = false;
+            const results = [];
+            const activeCapDirs = isSoberana ? soberanaDirs : peonCapDirs;
+
+            if (isSoberana) {
+                // Soberana: search along rays
+                activeCapDirs.forEach(d => {
+                    let nr = cr + d[0], nc = cc + d[1];
+                    // find first piece in line
+                    while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+                        if (boardState[nr][nc]) {
+                            if (boardState[nr][nc].color !== boardState[cr][cc].color) {
+                                // victim found at nr,nc -> possible landings after victim
+                                let vr = nr, vc = nc;
+                                let tr = vr + d[0], tc = vc + d[1];
+                                while (tr >= 0 && tr < 8 && tc >= 0 && tc < 8) {
+                                    if (boardState[tr][tc]) break; // blocked by piece
+                                    // simulate capture: move piece to tr,tc and remove victim
+                                    const nextBoard = cloneBoard(boardState);
+                                    const movingPiece = { color: nextBoard[cr][cc].color, isSoberana: isSoberana };
+                                    nextBoard[cr][cc] = null;
+                                    // remove victim
+                                    nextBoard[vr][vc] = null;
+                                    // place piece
+                                    // consider coronation: if peon (not isSoberana) reaching last rank becomes soberana
+                                    movingPiece.isSoberana = movingPiece.isSoberana || (movingPiece.isSoberana ? true : (tr === (movingPiece.color === 'white' ? 7 : 0)));
+                                    nextBoard[tr][tc] = movingPiece;
+
+                                    // Recurse
+                                    const further = dfs(nextBoard, tr, tc, movingPiece.isSoberana);
+                                    const move = { r: tr, c: tc, type: 'captura', cap: { r: vr, c: vc } };
+                                    if (further.length > 0) {
+                                        further.forEach(fseq => results.push([move, ...fseq]));
+                                    } else {
+                                        results.push([move]);
+                                    }
+                                    found = true;
+
+                                    tr += d[0]; tc += d[1];
+                                }
+                            }
+                            break; // stop at first piece
+                        }
+                        nr += d[0]; nc += d[1];
+                    }
+                });
+            } else {
+                // Peon captures: victim adjacent, landing the cell after
+                activeCapDirs.forEach(d => {
+                    const nr = cr + d[0], nc = cc + d[1];
+                    const er = cr + d[0] * 2, ec = cc + d[1] * 2;
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && er >= 0 && er < 8 && ec >= 0 && ec < 8) {
+                        if (boardState[nr][nc] && boardState[nr][nc].color !== boardState[cr][cc].color && !boardState[er][ec]) {
+                            const nextBoard = cloneBoard(boardState);
+                            const movingPiece = { color: nextBoard[cr][cc].color, isSoberana: false };
+                            nextBoard[cr][cc] = null;
+                            nextBoard[nr][nc] = null;
+                            // coronation
+                            movingPiece.isSoberana = (er === (movingPiece.color === 'white' ? 7 : 0));
+                            nextBoard[er][ec] = movingPiece;
+
+                            const further = dfs(nextBoard, er, ec, movingPiece.isSoberana);
+                            const move = { r: er, c: ec, type: 'captura', cap: { r: nr, c: nc } };
+                            if (further.length > 0) {
+                                further.forEach(fseq => results.push([move, ...fseq]));
+                            } else {
+                                results.push([move]);
+                            }
+                            found = true;
+                        }
+                    }
+                });
+            }
+
+            return results;
+        }
+
+        // Start DFS on cloned board
+        const cloned = cloneBoard(bd);
+        // Ensure starting square has a movable piece preserved
+        if (!cloned[r][c]) return [];
+        const startIsSoberana = !!cloned[r][c].isSoberana;
+        const all = dfs(cloned, r, c, startIsSoberana);
+        return all; // array of sequences (arrays)
+    }
+
+    // Return maximum capture length available for the given player across the whole board
+    function maxCapturesForPlayer(color) {
+        let max = 0;
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const p = board[r][c];
+                if (!p || p.color !== color) continue;
+                const seqs = generateCaptureSequences(board, r, c);
+                seqs.forEach(s => { if (s.length > max) max = s.length; });
+            }
+        }
+        return max;
     }
 
     // --- Inicialización DOM ---
@@ -152,7 +268,6 @@ const Game = (function () {
         }
 
         if (elCurrentMoveText) {
-            // Keep previous text if set by execute; otherwise show whose turn it is
             if (!elCurrentMoveText.dataset.preset) {
                 elCurrentMoveText.textContent = (turn === playerColor) ? 'TU TURNO' : 'TURNO ENEMIGO';
             }
@@ -182,7 +297,6 @@ const Game = (function () {
     function updateMoveLog(text) {
         if (!elCurrentMoveText) return;
         elCurrentMoveText.textContent = text;
-        // mark as preset so render doesn't overwrite
         elCurrentMoveText.dataset.preset = '1';
     }
 
@@ -193,8 +307,7 @@ const Game = (function () {
         container.appendChild(div);
     }
 
-    // --- Game logic (adapted from original) ---
-
+    // --- Inicialización y setup ---
     function setupGame(color) {
         playerColor = color || 'white';
         pangiColor = (playerColor === 'white') ? 'black' : 'white';
@@ -202,7 +315,6 @@ const Game = (function () {
         selected = null;
         isChain = false;
 
-        // Prepare board (mirror original initial setup)
         board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(null));
         for (let c = 0; c < 8; c++) {
             board[0][c] = { color: 'white', isSoberana: false };
@@ -211,7 +323,6 @@ const Game = (function () {
             board[7][c] = { color: 'black', isSoberana: false };
         }
 
-        // Hide setup overlay if exists
         const setupOverlay = document.getElementById('setup-overlay');
         if (setupOverlay) setupOverlay.style.display = 'none';
 
@@ -221,24 +332,66 @@ const Game = (function () {
         if (turn === pangiColor) setTimeout(pangiAI, 600);
     }
 
-    function init() {
-        // default playerColor already set; call setup
-        setupGame(playerColor);
-    }
+    function init() { setupGame(playerColor); }
 
     function getNotation(r, c) { return `${COLS[c]}${r + 1}`; }
 
+    // getValidMoves now enforces Ley de Cantidad
     function getValidMoves(r, c, onlyCaptures = false) {
         const p = board[r][c];
         if (!p) return [];
-        let moves = [];
-        const fwd = p.color === 'white' ? 1 : -1;
 
+        // First, compute global maximum captures for the player (only when not in chain)
+        let globalMax = 0;
+        if (!onlyCaptures) globalMax = maxCapturesForPlayer(p.color);
+
+        // If we're in a chain or onlyCaptures requested, compute sequences from this piece
+        const sequencesFromPiece = generateCaptureSequences(board, r, c);
+        const localMax = sequencesFromPiece.reduce((m, s) => Math.max(m, s.length), 0);
+
+        // If global captures exist (>0) and not onlyCaptures: we must force capture moves that are part of sequences with length == globalMax
+        // If onlyCaptures (chain) or globalMax === 0: behave accordingly (either force local captures or allow simple moves)
+
+        const moves = [];
+        const fwd = p.color === 'white' ? 1 : -1;
         const soberanaDirs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
         const peonDirs = [[fwd, 0], [0, 1], [0, -1]];
         const peonCapDirs = [[fwd, 0], [fwd, 1], [fwd, -1], [0, 1], [0, -1]];
 
-        // Simple moves
+        // If captures are required (globalMax > 0) then only include capture moves that begin maximal sequences
+        if (globalMax > 0) {
+            // collect first moves from sequences across all pieces matching globalMax
+            const allowedFirstMoves = new Set();
+            for (let rr = 0; rr < 8; rr++) for (let cc = 0; cc < 8; cc++) {
+                const piece = board[rr][cc];
+                if (!piece || piece.color !== p.color) continue;
+                const seqs = generateCaptureSequences(board, rr, cc);
+                seqs.forEach(s => {
+                    if (s.length === globalMax) {
+                        const first = s[0];
+                        // stringify origin+dest to identify moves uniquely: origin included elsewhere; we will compare by origin coordinates
+                        const key = `${rr},${cc}->${first.r},${first.c}`;
+                        allowedFirstMoves.add(key);
+                    }
+                });
+            }
+            // Now gather allowed moves for this specific piece (r,c)
+            sequencesFromPiece.forEach(s => {
+                if (s.length === globalMax) moves.push({ r: s[0].r, c: s[0].c, type: 'captura', cap: s[0].cap, origin: { r, c } });
+            });
+            return moves;
+        }
+
+        // If no global captures or we're inside a chain (onlyCaptures true): prefer local captures if any
+        if (localMax > 0) {
+            // Only include first steps of sequences that reach localMax
+            sequencesFromPiece.forEach(s => {
+                if (s.length === localMax) moves.push({ r: s[0].r, c: s[0].c, type: 'captura', cap: s[0].cap });
+            });
+            return moves;
+        }
+
+        // No captures available: allow simple moves
         if (!onlyCaptures) {
             if (p.isSoberana) {
                 soberanaDirs.forEach(d => {
@@ -251,43 +404,10 @@ const Game = (function () {
             } else {
                 peonDirs.forEach(d => {
                     let nr = r + d[0], nc = c + d[1];
-                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && !board[nr][nc]) {
-                        moves.push({ r: nr, c: nc, type: 'a' });
-                    }
+                    if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && !board[nr][nc]) moves.push({ r: nr, c: nc, type: 'a' });
                 });
             }
         }
-
-        // Captures
-        const activeCapDirs = p.isSoberana ? soberanaDirs : peonCapDirs;
-        activeCapDirs.forEach(d => {
-            if (p.isSoberana) {
-                let nr = r + d[0], nc = c + d[1];
-                let victim = null;
-                while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
-                    if (board[nr][nc]) {
-                        if (board[nr][nc].color !== p.color) victim = { r: nr, c: nc };
-                        break;
-                    }
-                    nr += d[0]; nc += d[1];
-                }
-                if (victim) {
-                    let tr = victim.r + d[0], tc = victim.c + d[1];
-                    while (tr >= 0 && tr < 8 && tc >= 0 && tc < 8 && !board[tr][tc]) {
-                        moves.push({ r: tr, c: tc, type: 'captura', cap: victim });
-                        tr += d[0]; tc += d[1];
-                    }
-                }
-            } else {
-                let nr = r + d[0], nc = c + d[1];
-                let er = r + d[0] * 2, ec = c + d[1] * 2;
-                if (er >= 0 && er < 8 && ec >= 0 && ec < 8) {
-                    if (board[nr][nc] && board[nr][nc].color !== p.color && !board[er][ec]) {
-                        moves.push({ r: er, c: ec, type: 'captura', cap: { r: nr, c: nc } });
-                    }
-                }
-            }
-        });
 
         return moves;
     }
@@ -295,8 +415,6 @@ const Game = (function () {
     function execute(move) {
         if (!move) return;
 
-        // If move comes from dot dataset, it has r,c,type and maybe cap
-        // If it came from earlier structure (pangiAI), it may include origin.
         let fromR, fromC;
         if (move.origin) {
             fromR = move.origin.r; fromC = move.origin.c;
@@ -305,43 +423,43 @@ const Game = (function () {
         } else if (move.from) {
             fromR = move.from.r; fromC = move.from.c;
         } else {
-            // No origin; ignore
             return;
         }
 
         const p = board[fromR][fromC];
         if (!p) return;
 
-        // Log move text
         const moveText = `${p.color.toUpperCase()}: ${getNotation(fromR, fromC)} ${move.type} ${getNotation(move.r, move.c)}`;
         updateMoveLog(moveText);
 
-        // Move piece
         board[move.r][move.c] = p;
         board[fromR][fromC] = null;
 
         if (move.type === 'captura' && move.cap) {
-            // capture color before clearing
-            const captured = board[move.cap.r][move.cap.c];
-            if (captured) updateGraveyard(captured.color);
+            if (board[move.cap.r] && board[move.cap.r][move.cap.c]) updateGraveyard(board[move.cap.r][move.cap.c].color);
             board[move.cap.r][move.cap.c] = null;
 
-            // chain captures
-            const next = getValidMoves(move.r, move.c, true);
-            if (next.length > 0) {
+            // After capture, check for further captures from new pos (chain)
+            const nextSeqs = generateCaptureSequences(board, move.r, move.c);
+            if (nextSeqs.length > 0) {
                 selected = { r: move.r, c: move.c };
                 isChain = true;
                 render();
-                // if pangi playing, auto-execute first chain move
-                if (turn === pangiColor) setTimeout(() => execute(next[0]), 500);
+                // If opponent AI is moving in chain, auto-play first continuation
+                if (turn === pangiColor) setTimeout(() => {
+                    // choose continuation that leads to maximum captures (local)
+                    const localMax = nextSeqs.reduce((m,s) => Math.max(m, s.length), 0);
+                    const best = nextSeqs.find(s => s.length === localMax);
+                    if (best) execute(best[0]);
+                }, 300);
                 return;
             }
         }
 
-        // Crown
+        // Coronación
         if (move.r === (p.color === 'white' ? 7 : 0)) p.isSoberana = true;
 
-        // Change turn
+        // Cambiar turno
         turn = (turn === 'white') ? 'black' : 'white';
         selected = null;
         isChain = false;
@@ -358,8 +476,33 @@ const Game = (function () {
             }
         }
         if (options.length === 0) return;
+
+        // Prefer captures (options should already be filtered by Ley de Cantidad), else random
         const captures = options.filter(o => o.type === 'captura');
-        const move = captures.length > 0 ? captures[0] : options[Math.floor(Math.random() * options.length)];
+        let move;
+        if (captures.length > 0) {
+            // Heuristic: prefer moves that lead to coronation or that maximize immediate sequence length
+            // Compute sequence lengths for each capture option
+            let best = null; let bestLen = -1;
+            captures.forEach(o => {
+                // simulate move and compute remaining capture chain length
+                const copy = cloneBoard(board);
+                const p = copy[o.origin.r][o.origin.c];
+                if (!p) return;
+                copy[o.r][o.c] = p;
+                copy[o.origin.r][o.origin.c] = null;
+                if (o.cap) copy[o.cap.r][o.cap.c] = null;
+                // coronation
+                if (o.r === (p.color === 'white' ? 7 : 0)) p.isSoberana = true;
+                const seqs = generateCaptureSequences(copy, o.r, o.c);
+                const len = seqs.reduce((m,s) => Math.max(m, s.length), 0) + 1; // include this capture
+                if (len > bestLen) { bestLen = len; best = o; }
+            });
+            move = best || captures[0];
+        } else {
+            move = options[Math.floor(Math.random() * options.length)];
+        }
+
         selected = move.origin;
         execute(move);
     }
@@ -396,12 +539,9 @@ const Game = (function () {
         setupGame,
         render,
         getNotation,
-        // Expose minimal internals for debugging/tests
         _debug: () => ({ board, playerColor, pangiColor, turn, selected, isChain }),
-        // Allow external reset or custom setups
         setPlayerColor: (c) => { playerColor = c; pangiColor = (c === 'white' ? 'black' : 'white'); }
     };
 })();
 
-// Auto-init when DOM ready
-document.addEventListener('DOMContentLoaded', () => { try { Game.init(); } catch (e) { console.warn('Game init error:', e); } }
+document.addEventListener('DOMContentLoaded', () => { try { Game.init(); } catch (e) { console.warn('Game init error:', e); } });
